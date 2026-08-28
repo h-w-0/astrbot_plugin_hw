@@ -1,24 +1,84 @@
-from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
+from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
-from astrbot.api import logger
+from astrbot.api import logger, AstrBotConfig
+import astrbot.api.message_components as Comp
+import aiohttp
 
-@register("helloworld", "YourName", "一个简单的 Hello World 插件", "1.0.0")
-class MyPlugin(Star):
-    def __init__(self, context: Context):
+API_URL = "https://hw233.cn/api/RandomOC.php"
+
+
+@register(
+    "astrbot_plugin_hw",
+    "H_W , Grok",
+    "自用插件",
+    "1.0.0",
+)
+class HWPlugin(Star):
+    def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
+        self.config = config
 
-    async def initialize(self):
-        """可选择实现异步的插件初始化方法，当实例化该插件类之后会自动调用该方法。"""
+    def _is_allowed(self, event: AstrMessageEvent) -> bool:
+        """检查当前会话是否允许使用指令。
+        白名单为空：全部开放（群聊 + 私聊）。
+        白名单非空：仅白名单内的群号可使用；私聊直接拒绝。
+        """
+        whitelist = self.config.get("group_whitelist") or []
+        # 统一转成字符串，避免类型不一致
+        whitelist = [str(g).strip() for g in whitelist if str(g).strip()]
 
-    # 注册指令的装饰器。指令名为 helloworld。注册成功后，发送 `/helloworld` 就会触发这个指令，并回复 `你好, {user_name}!`
-    @filter.command("helloworld")
-    async def helloworld(self, event: AstrMessageEvent):
-        """这是一个 hello world 指令""" # 这是 handler 的描述，将会被解析方便用户了解插件内容。建议填写。
-        user_name = event.get_sender_name()
-        message_str = event.message_str # 用户发的纯文本消息字符串
-        message_chain = event.get_messages() # 用户所发的消息的消息链 # from astrbot.api.message_components import *
-        logger.info(message_chain)
-        yield event.plain_result(f"Hello, {user_name}, 你发了 {message_str}!") # 发送一条纯文本消息
+        if not whitelist:
+            return True
+
+        group_id = event.get_group_id()
+        if not group_id:
+            # 私聊且开启了白名单 -> 不允许
+            return False
+
+        return str(group_id) in whitelist
+
+    @filter.command("hw", alias={"HW"})
+    async def hw(self, event: AstrMessageEvent):
+        """随机获取一张 OC 图片"""
+        if not self._is_allowed(event):
+            # 静默忽略，不回复任何内容
+            return
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(API_URL, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                    if resp.status != 200:
+                        logger.error(f"[astrbot_plugin_hw] API 返回状态码: {resp.status}")
+                        yield event.plain_result("获取图片失败，请稍后再试~")
+                        return
+                    data = await resp.json()
+
+            url = data.get("url")
+            if not url:
+                logger.error(f"[astrbot_plugin_hw] API 返回数据缺少 url: {data}")
+                yield event.plain_result("获取图片失败，请稍后再试~")
+                return
+
+            time_str = data.get("time", "")
+            by = data.get("by", "")
+            oc_id = data.get("id", "")
+
+            # 格式：日期 by 作者\nID xxx
+            text = f"{time_str} by {by}\nID {oc_id}"
+
+            chain = [
+                Comp.Image.fromURL(url),
+                Comp.Plain(text),
+            ]
+            yield event.chain_result(chain)
+
+        except aiohttp.ClientError as e:
+            logger.error(f"[astrbot_plugin_hw] 网络请求失败: {e}")
+            yield event.plain_result("网络错误，获取图片失败，请稍后再试~")
+        except Exception as e:
+            logger.error(f"[astrbot_plugin_hw] 未知错误: {e}")
+            yield event.plain_result("获取图片失败，请稍后再试~")
 
     async def terminate(self):
-        """可选择实现异步的插件销毁方法，当插件被卸载/停用时会调用。"""
+        """插件卸载/停用时调用"""
+        pass
