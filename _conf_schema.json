@@ -1,0 +1,11 @@
+{
+  "group_whitelist": {
+    "description": "群聊白名单",
+    "type": "list",
+    "hint": "填写允许使用该插件的群号。不填（保持空列表）则默认对所有群聊和私聊开放；填写后仅白名单内的群可使用该指令。",
+    "default": [],
+    "items": {
+      "type": "string"
+    }
+  }
+}
