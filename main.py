@@ -4,7 +4,7 @@ from astrbot.api import logger, AstrBotConfig
 import astrbot.api.message_components as Comp
 import aiohttp
 
-API_URL = "https://hw233.cn/api/RandomImg.php"
+API_URL = "https://hw233.cn/api/RandomOC.php"
 
 
 @register(
